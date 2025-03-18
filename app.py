@@ -2,63 +2,96 @@
 
 import streamlit as st
 import folium
-import geopandas as gpd
+import requests
 import pandas as pd
-import plotly.express as px
 from folium.plugins import HeatMap
 from streamlit_folium import folium_static
+import plotly.express as px
 
-# Global dataset - Simulated example (Replace with a real dataset)
-data = {
-    'lat': [37.7749, 34.0522, 40.7128, 51.5074, -33.8688, 48.8566, 35.6895, 39.9042],
-    'lon': [-122.4194, -118.2437, -74.0060, -0.1278, 151.2093, 2.3522, 139.6917, 116.4074],
-    'price': [500000, 800000, 700000, 1200000, 900000, 1500000, 1100000, 950000],
-    'city': ['San Francisco', 'Los Angeles', 'New York', 'London', 'Sydney', 'Paris', 'Tokyo', 'Beijing'],
-    'country': ['USA', 'USA', 'USA', 'UK', 'Australia', 'France', 'Japan', 'China']
-}
+# OpenWeatherMap API Key
+API_KEY = "ea815a44ac089b6f28d755bacec67f30"  # Replace with your OpenWeatherMap API key
 
-# Convert data into DataFrame
-df = pd.DataFrame(data)
+# List of cities from around the world (You can expand this list)
+cities = [
+    {'city': 'San Francisco', 'lat': 37.7749, 'lon': -122.4194},
+    {'city': 'Los Angeles', 'lat': 34.0522, 'lon': -118.2437},
+    {'city': 'New York', 'lat': 40.7128, 'lon': -74.0060},
+    {'city': 'London', 'lat': 51.5074, 'lon': -0.1278},
+    {'city': 'Sydney', 'lat': -33.8688, 'lon': 151.2093},
+    {'city': 'Paris', 'lat': 48.8566, 'lon': 2.3522},
+    {'city': 'Tokyo', 'lat': 35.6895, 'lon': 139.6917},
+    {'city': 'Beijing', 'lat': 39.9042, 'lon': 116.4074},
+    {'city': 'Moscow', 'lat': 55.7558, 'lon': 37.6173},
+    {'city': 'Cairo', 'lat': 30.0444, 'lon': 31.2357}
+]
 
-# Convert DataFrame to GeoDataFrame
-gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat))
+# Function to fetch weather data from OpenWeatherMap
+def get_weather_data(city, lat, lon):
+    url = f"http://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
+    response = requests.get(url)
+    data = response.json()
+    
+    if response.status_code == 200:
+        # Extracting the relevant weather information
+        weather_data = {
+            'city': city,
+            'lat': lat,
+            'lon': lon,
+            'temperature': data['main']['temp'],
+            'humidity': data['main']['humidity'],
+            'weather': data['weather'][0]['description'],
+        }
+        return weather_data
+    else:
+        st.warning(f"Could not retrieve weather data for {city}")
+        return None
+
+# Fetch weather data for each city
+weather_info = []
+for city_data in cities:
+    weather_data = get_weather_data(city_data['city'], city_data['lat'], city_data['lon'])
+    if weather_data:
+        weather_info.append(weather_data)
+
+# Convert weather data to a DataFrame
+weather_df = pd.DataFrame(weather_info)
 
 # Streamlit Layout
-st.title("Global Interactive Geo-Spatial Analysis Tool")
-st.write("Global Real Estate Data Points on a Map")
+st.title("Global Weather Map")
+st.write("Weather conditions across the world")
 
-# Show the first few rows of the data
-st.write(df.head())
+# Display weather data in a table
+st.write(weather_df)
 
-# Add price filter
-min_price, max_price = st.slider(
-    "Select Price Range:",
-    min_value=int(df['price'].min()),
-    max_value=int(df['price'].max()),
-    value=(int(df['price'].min()), int(df['price'].max()))
-)
-
-# Filter data based on price
-filtered_df = df[(df['price'] >= min_price) & (df['price'] <= max_price)]
-
-# Create a folium map centered globally
+# Create a Folium map centered globally
 m = folium.Map(location=[20, 0], zoom_start=2)  # Global view, center the map around the equator
 
-# Add markers to the map for filtered data
-for index, row in filtered_df.iterrows():
-    folium.Marker(
+# Add weather markers to the map
+for index, row in weather_df.iterrows():
+    # Choose color based on temperature
+    if row['temperature'] > 30:
+        color = 'red'
+    elif row['temperature'] > 20:
+        color = 'orange'
+    elif row['temperature'] > 10:
+        color = 'yellow'
+    else:
+        color = 'blue'
+    
+    # Add a marker with temperature and weather info
+    folium.CircleMarker(
         location=[row['lat'], row['lon']],
-        popup=f"City: {row['city']}<br>Country: {row['country']}<br>Price: ${row['price']}",
-        icon=folium.Icon(color='green')
+        radius=8,
+        popup=f"City: {row['city']}<br>Temperature: {row['temperature']}°C<br>Weather: {row['weather']}<br>Humidity: {row['humidity']}%",
+        color=color,
+        fill=True,
+        fill_color=color,
+        fill_opacity=0.6
     ).add_to(m)
-
-# Add a heatmap layer with filtered data
-heat_data = [[point[1], point[0]] for point in zip(filtered_df['lat'], filtered_df['lon'])]
-HeatMap(heat_data).add_to(m)
 
 # Render the map in Streamlit
 folium_static(m)
 
-# Plot housing price trends (optional global chart)
-fig = px.line(filtered_df, x='city', y='price', title="Housing Prices by City", labels={'price': 'Price ($)', 'city': 'City'})
+# Plot weather conditions trend (Temperature vs City)
+fig = px.bar(weather_df, x='city', y='temperature', title="Temperature by City", labels={'temperature': 'Temperature (°C)', 'city': 'City'})
 st.plotly_chart(fig)
